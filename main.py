@@ -238,6 +238,12 @@ TRANSLATIONS = {
     "Ready": "Готово к загрузке проекта",
     "Language": "Язык",
     "Delete all project folders": "Удалить все папки проектов",
+    "Reinstall all": "Переустановить всё",
+    "Open logs folder": "Открыть папку логов",
+    "Open dependencies folder": "Открыть папку зависимостей",
+    "Open projects folder": "Открыть папку проектов",
+    "Confirm Reinstall": "Подтверждение переустановки",
+    "This will delete logs, dependencies, and projects folders, then reinstall everything. Continue?": "Это удалит папки логов, зависимостей и проектов, затем переустановит всё. Продолжить?",
     "Cordova": "Cordova",
     "Android Studio": "Android Studio",
     "Debug APK": "Отладочный APK",
@@ -448,6 +454,7 @@ TRANSLATIONS = {
     "Android Versions": "Версии Android",
     "Min. version": "Мин. версия",
     "Target version: Android 14 (API level 34)": "Целевая версия: Android 14 (API уровень 34)",
+    "Target version: Android 15 (API level 35)": "Целевая версия: Android 15 (API уровень 35)",
     "Properties": "Свойства",
     "URL whitelist": "Белый список URL",
     "Hide status bar": "Скрыть статус-бар",
@@ -693,6 +700,7 @@ TRANSLATIONS_PT = {
     "Android Versions": "Versões do Android",
     "Min. version": "Versão mínima",
     "Target version: Android 14 (API level 34)": "Versão alvo: Android 14 (API nível 34)",
+    "Target version: Android 15 (API level 35)": "Versão alvo: Android 15 (API nível 35)",
     "Properties": "Propriedades",
     "URL whitelist": "Lista branca de URLs",
     "Hide status bar": "Ocultar barra de status",
@@ -1042,41 +1050,22 @@ class MainApp(ctk.CTk):
             messagebox.showinfo(title, message)
     
     def _show_support_dialog(self):
-        """Показывает окно поддержки неблокирующим образом в координатах курсора"""
+        """Показывает окно поддержки неблокирующим образом"""
         try:
-            import tkinter as tk
-            
             # Получаем текущий язык
             lang = self._get_lang()
             
-            # Создаем окно поддержки
+            # Создаем окно поддержки (оно само центрируется в своем __init__)
             support_dialog = CoffeeSupportDialog(self, lang)
             
-            # Получаем координаты курсора мыши
-            x = self.winfo_pointerx()
-            y = self.winfo_pointery()
-            
-            # Получаем размеры окна
-            window_width = 600
-            window_height = 600
-            
-            # Вычисляем позицию так, чтобы окно было центрировано относительно курсора
-            pos_x = x - (window_width // 2)
-            pos_y = y - (window_height // 2)
-            
-            # Устанавливаем позицию окна
-            support_dialog.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
-            
             # Делаем окно поверх всех остальных окон
+            support_dialog.attributes('-topmost', True)  # Всегда поверх
             support_dialog.lift()  # Поднимаем окно наверх
             support_dialog.focus_force()  # Принудительно фокусируемся на окне
             
-            # Делаем окно неблокирующим
-            support_dialog.grab_release()
-            support_dialog.transient(self)
-            
             # Дополнительно поднимаем окно наверх через небольшую задержку
             support_dialog.after(100, lambda: support_dialog.lift())
+            support_dialog.after(200, lambda: support_dialog.attributes('-topmost', False))  # Убираем topmost через 200мс
             
         except Exception as e:
             self.logger.log("Failed to show support dialog: {error}", "WARNING", error=str(e))
@@ -1165,7 +1154,7 @@ class MainApp(ctk.CTk):
                 "fullscreen": cfg["hideStatus"],
                 "permissionTypes": [p for p,flag in (("camera",cfg["permCamera"]),("microphone",cfg["permMic"])) if flag],
                 "icons": ([{"src": icon_rel or "www/icons/icon-128.png", "width":128, "height":128, "density":"xxhdpi"}] if icon_rel else []),
-                "android": {"min": cfg["minApi"], "target": cfg["targetApi"], "engine": "12.0.0"},
+                "android": {"min": cfg["minApi"], "target": cfg["targetApi"], "engine": "13.0.0"},
                 "plugins": [p for p, enabled in (cfg.get("plugins", {}) or {}).items() if enabled]
             }
             with open(os.path.join(proj, "config.json"), "w", encoding="utf-8") as f:
@@ -1192,6 +1181,8 @@ class MainApp(ctk.CTk):
   <platform name="android">
     <preference name="android-minSdkVersion" value="{cfg['minApi']}" />
     <preference name="android-targetSdkVersion" value="{cfg['targetApi']}" />
+    <preference name="android-compileSdkVersion" value="35" />
+    <preference name="android-buildToolsVersion" value="35.0.0" />
     <icon density="mdpi" src="www/res/mipmap-mdpi/ic_launcher.png" />
     <icon density="hdpi" src="www/res/mipmap-hdpi/ic_launcher.png" />
     <icon density="xhdpi" src="www/res/mipmap-xhdpi/ic_launcher.png" />
@@ -1419,21 +1410,30 @@ class MainApp(ctk.CTk):
         # First row of controls
         man_controls_row1 = ctk.CTkFrame(manual_frame, corner_radius=8)
         man_controls_row1.pack(fill="x", padx=8, pady=(0, 6))
-        """self.btn_open_deps = ctk.CTkButton(man_controls_row1, text=self._tr("Open dependencies folder"), width=230, command=self._open_dependencies)
-        self.btn_open_deps.pack(side="left", padx=6, pady=6)"""
-        self.btn_recheck = ctk.CTkButton(man_controls_row1, text=self._tr("Re-check deps"), width=170, command=lambda: threading.Thread(target=self.check_dependencies, daemon=True).start())
-        self.btn_recheck.pack(side="left", padx=6, pady=6)
-        self.btn_copy_logs = ctk.CTkButton(man_controls_row1, text=self._tr("Copy logs"), width=140, command=lambda: self.logger.copy())
-        self.btn_copy_logs.pack(side="left", padx=6)
-        
-        self.btn_clear_logs = ctk.CTkButton(man_controls_row1, text=self._tr("Clear logs"), width=150, command=lambda: self.logger.clear_ui())
-        self.btn_clear_logs.pack(side="left", padx=6, pady=6)
+        self.btn_open_logs = ctk.CTkButton(man_controls_row1, text=self._tr("Open logs folder"), width=170, command=self._open_logs_dir)
+        self.btn_open_logs.pack(side="left", padx=6, pady=6)
+        self.btn_open_deps = ctk.CTkButton(man_controls_row1, text=self._tr("Open dependencies folder"), width=210, command=self._open_dependencies)
+        self.btn_open_deps.pack(side="left", padx=6, pady=6)
+        self.btn_open_projects = ctk.CTkButton(man_controls_row1, text=self._tr("Open projects folder"), width=190, command=self._open_projects_dir)
+        self.btn_open_projects.pack(side="left", padx=6, pady=6)
         
         # Second row of controls
         man_controls_row2 = ctk.CTkFrame(manual_frame, corner_radius=8)
         man_controls_row2.pack(fill="x", padx=8, pady=(0, 8))
-        self.btn_delete_projects = ctk.CTkButton(man_controls_row2, text=self._tr("Delete all project folders"), width=230, command=self._delete_project_folders, fg_color="#e74c3c")
+        self.btn_recheck = ctk.CTkButton(man_controls_row2, text=self._tr("Re-check deps"), width=170, command=lambda: threading.Thread(target=self.check_dependencies, daemon=True).start())
+        self.btn_recheck.pack(side="left", padx=6, pady=6)
+        self.btn_copy_logs = ctk.CTkButton(man_controls_row2, text=self._tr("Copy logs"), width=140, command=lambda: self.logger.copy())
+        self.btn_copy_logs.pack(side="left", padx=6, pady=6)
+        self.btn_clear_logs = ctk.CTkButton(man_controls_row2, text=self._tr("Clear logs"), width=150, command=lambda: self.logger.clear_ui())
+        self.btn_clear_logs.pack(side="left", padx=6, pady=6)
+        
+        # Third row of controls - red buttons
+        man_controls_row3 = ctk.CTkFrame(manual_frame, corner_radius=8)
+        man_controls_row3.pack(fill="x", padx=8, pady=(0, 8))
+        self.btn_delete_projects = ctk.CTkButton(man_controls_row3, text=self._tr("Delete all project folders"), width=230, command=self._delete_project_folders, fg_color="#e74c3c")
         self.btn_delete_projects.pack(side="left", padx=6, pady=6)
+        self.btn_reinstall = ctk.CTkButton(man_controls_row3, text=self._tr("Reinstall all"), width=170, command=self._reinstall_all, fg_color="#e74c3c")
+        self.btn_reinstall.pack(side="left", padx=6, pady=6)
 
         # Language section moved to second row, right side after reinstall button
         lang_frame = ctk.CTkFrame(man_controls_row2, corner_radius=6)
@@ -1477,6 +1477,7 @@ class MainApp(ctk.CTk):
             self.ks_frame.pack(fill="x", padx=10, pady=8)
         else:
             self.ks_frame.pack_forget()
+    
     def _on_project_display_change(self, *args):
         try:
             # Скрываем кнопку HTML5-конфига, если выбран не HTML5
@@ -1488,7 +1489,7 @@ class MainApp(ctk.CTk):
                 except Exception:
                     pass
                 try:
-                    self.btn_html5_config.pack(anchor="w", padx=8, pady=(4, 8))
+                    self.btn_html5_config.pack_configure(anchor="w", padx=8, pady=(4,8))
                 except Exception:
                     pass
             else:
@@ -1553,10 +1554,14 @@ class MainApp(ctk.CTk):
             if hasattr(self, 'btn_html5_config'):
                 self.btn_html5_config.configure(text=self._tr("Configure HTML5"))
             self.lbl_manual.configure(text=self._tr("Manual Actions"))
-            #self.btn_open_deps.configure(text=self._tr("Open dependencies folder"))
             self.btn_recheck.configure(text=self._tr("Re-check deps"))
             self.btn_clear_logs.configure(text=self._tr("Clear logs"))
+            self.btn_copy_logs.configure(text=self._tr("Copy logs"))
             self.btn_delete_projects.configure(text=self._tr("Delete all project folders"))
+            self.btn_reinstall.configure(text=self._tr("Reinstall all"))
+            self.btn_open_logs.configure(text=self._tr("Open logs folder"))
+            self.btn_open_deps.configure(text=self._tr("Open dependencies folder"))
+            self.btn_open_projects.configure(text=self._tr("Open projects folder"))
             
             
             # Обновляем надписи в заголовке
@@ -1876,11 +1881,17 @@ class MainApp(ctk.CTk):
         except Exception as e:
             self.logger.log("Error: {err}", "ERROR", err=str(e))
             self.logger.raw(traceback.format_exc())
+            self.project_loaded = False
+            self.project_info_var.set(self._tr("No project loaded"))
+            self.btn_build.configure(state="disabled")
+            self._set_progress(0, self._tr("Project loading error"))
     def _load_cordova_zip(self, zip_path):
         try:
             self.logger.log("Loading Cordova ZIP: {zip}", "INFO", zip=zip_path)
             self._set_progress(5, self._tr("Loading ZIP archive..."))
             archive_name = os.path.splitext(os.path.basename(zip_path))[0]
+            # Убираем пробелы и спецсимволы из имени для совместимости с Windows CMD
+            archive_name = archive_name.replace(" ", "_").replace("(", "").replace(")", "")
             target = os.path.join(self.PROJ_DIR, archive_name)
             # Если проект с таким именем уже существует — удаляем и создаём заново
             try:
@@ -1932,6 +1943,8 @@ class MainApp(ctk.CTk):
             self.logger.log("Loading Cordova ZIP: {zip}", "INFO", zip=zip_path)
             self._set_progress(5, self._tr("Loading ZIP archive..."))
             archive_name = os.path.splitext(os.path.basename(zip_path))[0]
+            # Убираем пробелы и спецсимволы из имени для совместимости с Windows CMD
+            archive_name = archive_name.replace(" ", "_").replace("(", "").replace(")", "")
             target = os.path.join(self.PROJ_DIR, archive_name)
             # Если проект с таким именем уже существует — удаляем и создаём заново
             try:
@@ -1951,13 +1964,35 @@ class MainApp(ctk.CTk):
                     self._set_progress(progress, self._tr("Extracting ZIP archive... {percent}%", percent=int(extracted_files / total_files * 100)))
             # Flatten if single root dir containing index.html
             inner_dirs = [d for d in os.listdir(target) if os.path.isdir(os.path.join(target, d))]
-            if len(inner_dirs) == 1 and os.path.exists(os.path.join(target, inner_dirs[0], "index.html")):
+            if len(inner_dirs) == 1:
                 inner = os.path.join(target, inner_dirs[0])
-                for item in os.listdir(inner):
-                    shutil.move(os.path.join(inner, item), target)
-                shutil.rmtree(inner)
-                self.logger.log("Flattening inner directory {inner} → {dir}", "INFO", inner=inner, dir=target)
-                self._set_progress(20, self._tr("Preparing project..."))
+                # Проверяем, есть ли config.xml внутри - если да, это Cordova проект
+                if os.path.exists(os.path.join(inner, "config.xml")):
+                    # Это Cordova проект, переключаемся на Cordova режим
+                    for item in os.listdir(inner):
+                        shutil.move(os.path.join(inner, item), target)
+                    shutil.rmtree(inner)
+                    self.logger.log("Flattening inner directory {inner} → {dir}", "INFO", inner=inner, dir=target)
+                    self._set_progress(20, self._tr("Preparing project..."))
+                    # Переключаемся на Cordova
+                    self.project_path = target
+                    self.project_loaded = True
+                    self.project_internal_var.set("Cordova")
+                    self.project_display_var.set(self._localize_display("Cordova"))
+                    self._rebuild_optionmenus()
+                    self.project_info_var.set(f"{self._tr('Project loaded')}: {target}")
+                    self.btn_build.configure(state="normal")
+                    self.logger.log("Detected Cordova config.xml in HTML5 flow — switching to Cordova", "INFO")
+                    self.logger.log("Cordova project loaded and validated (config.xml found)", "SUCCESS")
+                    self._set_progress(25, self._tr("Project ready for build"))
+                    return
+                elif os.path.exists(os.path.join(inner, "index.html")):
+                    # Это HTML5 проект
+                    for item in os.listdir(inner):
+                        shutil.move(os.path.join(inner, item), target)
+                    shutil.rmtree(inner)
+                    self.logger.log("Flattening inner directory {inner} → {dir}", "INFO", inner=inner, dir=target)
+                    self._set_progress(20, self._tr("Preparing project..."))
             self.project_path = target
             if os.path.exists(os.path.join(target, "index.html")):
                 self.project_loaded = True
@@ -2098,8 +2133,8 @@ class MainApp(ctk.CTk):
             self._set_progress(0, self._tr("Ready"))
     def _install_node(self, start_progress, weight, total_weight):
         try:
-            node_url = ("https://nodejs.org/dist/v18.16.0/node-v18.16.0-win-x64.zip" if platform.system() == "Windows" 
-                       else "https://nodejs.org/dist/v18.16.0/node-v18.16.0-linux-x64.tar.xz")
+            node_url = ("https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip" if platform.system() == "Windows" 
+                       else "https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz")
             node_dir = os.path.join(self.DEP_DIR, "node")
             self._download_and_extract(node_url, node_dir, "Node.js", start_progress, weight, total_weight)
             self._flatten_dir(node_dir)
@@ -2109,9 +2144,9 @@ class MainApp(ctk.CTk):
             self.logger.raw(traceback.format_exc())
     def _install_jdk(self, start_progress, weight, total_weight):
         try:
-            jdk_url = ("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.2%2B8/OpenJDK17U-jdk_x64_windows_hotspot_17.0.2_8.zip" 
+            jdk_url = ("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jdk_x64_windows_hotspot_17.0.13_11.zip" 
                       if platform.system() == "Windows" 
-                      else "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.2%2B8/OpenJDK17U-jdk_x64_linux_hotspot_17.0.2_8.tar.gz")
+                      else "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jdk_x64_linux_hotspot_17.0.13_11.tar.gz")
             jdk_dir = os.path.join(self.DEP_DIR, "jdk")
             self._download_and_extract(jdk_url, jdk_dir, "JDK", start_progress, weight, total_weight)
             self._flatten_dir(jdk_dir)
@@ -2136,11 +2171,11 @@ class MainApp(ctk.CTk):
             self.logger.raw(traceback.format_exc())
     def _install_gradle(self, start_progress, weight, total_weight):
         try:
-            gradle_url = "https://services.gradle.org/distributions/gradle-7.6-bin.zip"
+            gradle_url = "https://services.gradle.org/distributions/gradle-8.13-bin.zip"
             gradle_dir = os.path.join(self.DEP_DIR, "gradle")
             self._download_and_extract(gradle_url, gradle_dir, "Gradle", start_progress, weight, total_weight)
             self._flatten_dir(gradle_dir)
-            self.logger.log("Installed Gradle: {version}", "SUCCESS", version="7.6")
+            self.logger.log("Installed Gradle: {version}", "SUCCESS", version="8.13")
         except Exception as e:
             self.logger.log("Error: {err}", "ERROR", err=str(e))
             self.logger.raw(traceback.format_exc())
@@ -2316,14 +2351,7 @@ class MainApp(ctk.CTk):
             if len(inner_dirs) == 1:
                 inner = os.path.join(dir_path, inner_dirs[0])
                 for item in os.listdir(inner):
-                    src = os.path.join(inner, item)
-                    dest = os.path.join(dir_path, item)
-                    if os.path.exists(dest):
-                        if os.path.isdir(dest):
-                            shutil.rmtree(dest)
-                        else:
-                            os.remove(dest)
-                    shutil.move(src, dest)
+                    shutil.move(os.path.join(inner, item), dir_path)
                 shutil.rmtree(inner)
                 self.logger.log("Flattening inner directory {inner} → {dir}", "INFO", inner=inner, dir=dir_path)
         except Exception as e:
@@ -2449,9 +2477,10 @@ class MainApp(ctk.CTk):
                 raise Exception("sdkmanager not found")
             components = [
                 "platform-tools",
-                "platforms;android-33",
+                "platforms;android-35",
+                "build-tools;35.0.0",
                 "platforms;android-34",
-                "build-tools;33.0.2"
+                "platforms;android-33"
             ]
             env = self._get_env()
             total_comps = len(components)
@@ -2553,6 +2582,10 @@ class MainApp(ctk.CTk):
                     if line:
                         self.logger.raw(line.rstrip("\n"))
                 rc = proc.wait(timeout=timeout)
+                if rc == 0:
+                    self.logger.log("Command finished successfully (code {rc})", "SUCCESS", rc=rc)
+                else:
+                    self.logger.log("Command finished with code {rc}", "ERROR", rc=rc)
             except subprocess.TimeoutExpired:
                 try:
                     proc.terminate()
@@ -2560,12 +2593,11 @@ class MainApp(ctk.CTk):
                 except Exception:
                     pass
                 self.logger.log("Error: {err}", "ERROR", err="Command timeout")
-                return -1
+                return
             if rc == 0:
-                self.logger.log("Command finished successfully (code {rc})", "SUCCESS", rc=rc)
+                return 0
             else:
-                self.logger.log("Command finished with code {rc}", "ERROR", rc=rc)
-            return rc
+                return rc
         except Exception as e:
             self.logger.log("Error: {err}", "ERROR", err=str(e))
             self.logger.raw(traceback.format_exc())
@@ -2716,12 +2748,40 @@ class MainApp(ctk.CTk):
             npm_cli_path = ensure_npm_cli(node_dir, self.logger)
             if not os.path.exists(npm_cli_path):
                 raise Exception("npm-cli.js not found even after bootstrap")
-            # Команда cordova platform add
+            
             node_exe = os.path.join(node_dir, "node.exe" if platform.system() == "Windows" else "bin/node")
-            add_cmd = [node_exe, cordova_cmd, "platform", "add", "android@12.0.0", "--no-telemetry"]
-            rc_add = self._run_and_stream(add_cmd, cwd=cwd)
-            if rc_add != 0:
-                raise Exception(f"Cordova platform add failed with code {rc_add}")
+            if not os.path.exists(node_exe):
+                raise Exception("node.exe not found; cannot install Cordova")
+            
+            env = self._get_env()
+            cmd = [node_exe, cordova_cmd, "platform", "add", "android@14.0.0", "--no-telemetry"]
+            
+            # Для установки Cordova используем старый метод без скрытия окна
+            self.logger.log("Executing: {cmd}", "DEBUG", cmd=" ".join(cmd))
+            shell = platform.system() == "Windows"
+            proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, 
+                                 text=True, env=env, bufsize=1, shell=shell, startupinfo=get_hidden_startupinfo())
+            try:
+                while True:
+                    line = proc.stdout.readline()
+                    if not line and proc.poll() is not None:
+                        break
+                    if line:
+                        self.logger.raw(line.rstrip("\n"))
+                rc = proc.wait(timeout=600)  # Увеличиваем timeout до 10 минут
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=3)
+                except Exception:
+                    pass
+                self.logger.log("Error: {err}", "ERROR", err="Command timeout")
+                return
+            if rc == 0:
+                self.logger.log("Command finished successfully (code {rc})", "SUCCESS", rc=rc)
+            else:
+                self.logger.log("Command finished with code {rc}", "ERROR", rc=rc)
+            
             self._set_progress(30, self._tr("Android platform added"))
         else:
             self.logger.log("Android platform already exists", "INFO")
@@ -2740,7 +2800,7 @@ class MainApp(ctk.CTk):
                     if not os.path.exists(npm_cli_path):
                         raise Exception("npm-cli.js not found even after bootstrap")
                     node_exe = os.path.join(node_dir, "node.exe" if platform.system() == "Windows" else "bin/node")
-                    add_cmd = [node_exe, cordova_cmd, "platform", "add", "android@12.0.0", "--no-telemetry"]
+                    add_cmd = [node_exe, cordova_cmd, "platform", "add", "android@14.0.0", "--no-telemetry"]
                     rc_add = self._run_and_stream(add_cmd, cwd=cwd)
                     if rc_add != 0:
                         raise Exception(f"Cordova platform add failed with code {rc_add}")
@@ -3654,7 +3714,8 @@ class MainApp(ctk.CTk):
         try:
             folder = os.path.dirname(path)
             if platform.system() == "Windows":
-                os.startfile(folder)
+                # Открываем проводник и выделяем файл, окно будет поверх всех
+                subprocess.Popen(['explorer', '/select,', os.path.normpath(path)])
             elif platform.system() == "Darwin":
                 subprocess.Popen(["open", folder], startupinfo=get_hidden_startupinfo())
             else:
@@ -3662,11 +3723,97 @@ class MainApp(ctk.CTk):
             self.logger.log("Opening folder: {folder}", "INFO", folder=folder)
         except Exception as e:
             self.logger.log("Error: {err}", "ERROR", err=str(e))
+    
+    def _open_folder(self, folder_path):
+        """Открывает указанную папку в проводнике"""
+        try:
+            if not os.path.exists(folder_path):
+                self.logger.log("Folder does not exist: {folder}", "WARNING", folder=folder_path)
+                return
+            
+            if platform.system() == "Windows":
+                os.startfile(folder_path)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", folder_path], startupinfo=get_hidden_startupinfo())
+            else:
+                subprocess.Popen(["xdg-open", folder_path], startupinfo=get_hidden_startupinfo())
+            self.logger.log("Opening folder: {folder}", "INFO", folder=folder_path)
+        except Exception as e:
+            self.logger.log("Error opening folder: {err}", "ERROR", err=str(e))
+    
     def _open_dependencies(self):
-        self._open_artifact_folder(self.DEP_DIR)
+        self._open_folder(self.DEP_DIR)
     def _open_logs_dir(self):
-        self._open_artifact_folder(self.LOGS_DIR)
+        self._open_folder(self.LOGS_DIR)
+    def _open_projects_dir(self):
+        self._open_folder(self.PROJ_DIR)
 
+    def _reinstall_all(self):
+        """Удаляет все и переустанавливает зависимости"""
+        try:
+            result = messagebox.askyesno(
+                self._tr("Confirm Reinstall"),
+                self._tr("This will delete logs, dependencies, and projects folders, then reinstall everything. Continue?")
+            )
+            if not result:
+                return
+            
+            def reinstall_thread():
+                try:
+                    self.logger.log("Starting full reinstall...", "WARNING")
+                    self.logger.log("Please wait, reinstallation in progress...", "INFO")
+                    
+                    # Завершаем процессы
+                    self.logger.log("Terminating Java and Node processes...", "INFO")
+                    kill_processes_by_name("java")
+                    kill_processes_by_name("node")
+                    kill_processes_by_name("gradle")
+                    time.sleep(2)
+                    
+                    # Удаляем папки
+                    folders = [
+                        (self.LOGS_DIR, "logs"),
+                        (self.DEP_DIR, "dependencies"),
+                        (self.PROJ_DIR, "projects")
+                    ]
+                    
+                    for folder_path, folder_name in folders:
+                        if os.path.exists(folder_path):
+                            self.logger.log(f"Deleting {folder_name} folder...", "INFO")
+                            try:
+                                shutil.rmtree(folder_path)
+                                self.logger.log(f"Deleted {folder_name} folder", "SUCCESS")
+                            except Exception as e:
+                                self.logger.log(f"Error deleting {folder_name}: {{error}}", "ERROR", error=str(e))
+                            time.sleep(0.5)
+                    
+                    # Пересоздаем папки
+                    safe_makedirs(self.LOGS_DIR)
+                    safe_makedirs(self.DEP_DIR)
+                    safe_makedirs(self.PROJ_DIR)
+                    
+                    self.logger.log("All folders deleted. Starting dependency check...", "SUCCESS")
+                    time.sleep(1)
+                    
+                    # Сбрасываем состояние
+                    self.dependencies_installed = False
+                    self.project_loaded = False
+                    self.project_info_var.set(self._tr("No project loaded"))
+                    self.btn_build.configure(state="disabled")
+                    self.btn_load.configure(state="disabled")
+                    
+                    # Запускаем проверку зависимостей
+                    self.check_dependencies()
+                    
+                except Exception as e:
+                    self.logger.log("Error during reinstall: {error}", "ERROR", error=str(e))
+                    self.logger.raw(traceback.format_exc())
+            
+            threading.Thread(target=reinstall_thread, daemon=True).start()
+            
+        except Exception as e:
+            self.logger.log("Error: {err}", "ERROR", err=str(e))
+    
     def _delete_project_folders(self):
         """Удаляет все папки проектов"""
         try:
@@ -3758,7 +3905,7 @@ class MainApp(ctk.CTk):
         Делает следующее:
         - Меняет xmlns:ns0 -> xmlns:android и ns0:name -> android:name
         - Удаляет устаревшие <splash/> теги
-        - Обновляет <engine name="android" spec="12.0.0"/>
+        - Обновляет <engine name="android" spec="14.0.0"/>
         - Гарантирует наличие prefs AndroidWindowSplashScreen* и корректных uses-permission с android:name
         """
         try:
@@ -3780,10 +3927,12 @@ class MainApp(ctk.CTk):
                         "\t<allow-navigation href=\"*\" />\n"
                         "\t<preference name=\"AndroidWindowSplashScreenAnimatedIcon\" value=\"www/icons/icon-128.png\" />\n"
                         "\t<preference name=\"AndroidWindowSplashScreenBackground\" value=\"#ffffff\" />\n"
-                        "\t<engine name=\"android\" spec=\"12.0.0\" />\n"
+                        "\t<engine name=\"android\" spec=\"14.0.0\" />\n"
                         "\t<platform name=\"android\">\n"
                         "\t\t<preference name=\"android-minSdkVersion\" value=\"24\" />\n"
-                        "\t\t<preference name=\"android-targetSdkVersion\" value=\"34\" />\n"
+                        "\t\t<preference name=\"android-targetSdkVersion\" value=\"35\" />\n"
+                        "\t\t<preference name=\"android-compileSdkVersion\" value=\"35\" />\n"
+                        "\t\t<preference name=\"android-buildToolsVersion\" value=\"35.0.0\" />\n"
                         "\t\t<config-file target=\"AndroidManifest.xml\" parent=\"/manifest\">\n"
                         "\t\t\t<uses-permission android:name=\"android.permission.INTERNET\" />\n"
                         "\t\t</config-file>\n"
@@ -3806,11 +3955,11 @@ class MainApp(ctk.CTk):
                 if 'ns0:name=' in txt:
                     txt = txt.replace('ns0:name=', 'android:name=')
                     changed = True
-                # Нормализуем engine spec на 12.0.0
+                # Нормализуем engine spec на 14.0.0
                 if '<engine name="android"' in txt:
-                    # простая замена spec="..." на 12.0.0
+                    # простая замена spec="..." на 14.0.0
                     import re
-                    txt_new = re.sub(r'(<engine\s+name="android"[^>]*spec=")[^"]+(")', r'\112.0.0\2', txt)
+                    txt_new = re.sub(r'(<engine\s+name="android"[^>]*spec=")[^"]+(")' , r'\g<1>14.0.0\2', txt)
                     if txt_new != txt:
                         txt = txt_new
                         changed = True
@@ -3876,14 +4025,14 @@ class MainApp(ctk.CTk):
                                 up.attrib.pop(k, None)
                         up.set('android:name', nm)
 
-            # Обновим/вставим тег engine android со spec=12.0.0
+            # Обновим/вставим тег engine android со spec=13.0.0
             has_engine = False
             for eng in root.findall('engine'):
                 if eng.get('name') == 'android':
-                    eng.set('spec', '12.0.0')
+                    eng.set('spec', '13.0.0')
                     has_engine = True
             if not has_engine:
-                ET.SubElement(root, 'engine', {'name': 'android', 'spec': '12.0.0'})
+                ET.SubElement(root, 'engine', {'name': 'android', 'spec': '13.0.0'})
 
             try:
                 tree.write(cfg_xml, encoding='utf-8', xml_declaration=True)
@@ -4075,10 +4224,26 @@ class WelcomeDialog(ctk.CTkToplevel):
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        # Центрируем окно
+        # Центрируем окно относительно родительского окна
         self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - (650 // 2)
-        y = (self.winfo_screenheight() // 2) - (650 // 2)
+        parent.update_idletasks()
+        
+        # Получаем размеры и позицию родительского окна
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        
+        # Вычисляем центр родительского окна
+        x = parent_x + (parent_width // 2) - (650 // 2)
+        y = parent_y + (parent_height // 2) - (650 // 2)
+        
+        # Убеждаемся, что окно не выходит за границы экрана
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = max(0, min(x, screen_width - 650))
+        y = max(0, min(y, screen_height - 650))
+        
         self.geometry(f"650x650+{x}+{y}")
         
         # Создаем интерфейс
@@ -4252,10 +4417,26 @@ class CoffeeSupportDialog(ctk.CTkToplevel):
         self.geometry("600x600")  # Делаем окно больше
         self.resizable(False, False)
         
-        # Центрируем окно
+        # Центрируем окно относительно родительского окна
         self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - (600 // 2)
-        y = (self.winfo_screenheight() // 2) - (600 // 2)
+        parent.update_idletasks()
+        
+        # Получаем размеры и позицию родительского окна
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        
+        # Вычисляем центр родительского окна
+        x = parent_x + (parent_width // 2) - (600 // 2)
+        y = parent_y + (parent_height // 2) - (600 // 2)
+        
+        # Убеждаемся, что окно не выходит за границы экрана
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = max(0, min(x, screen_width - 600))
+        y = max(0, min(y, screen_height - 600))
+        
         self.geometry(f"600x600+{x}+{y}")
         
         # Создаем интерфейс
@@ -4758,7 +4939,7 @@ class Html5ConfigDialog(ctk.CTkToplevel):
 
         versions = [
             ("7.0+ (Nougat)", "24"), ("8.0+ (Oreo)", "26"), ("9.0+ (Pie)", "28"),
-            ("10+ (Q)", "29"), ("11+ (R)", "30"), ("12+ (S)", "31"), ("13+ (T)", "33"), ("14+ (U)", "34")
+            ("10+ (Q)", "29"), ("11+ (R)", "30"), ("12+ (S)", "31"), ("13+ (T)", "33"), ("14+ (U)", "34"), ("15+ (V)", "35")
         ]
         self.min_display = tk.StringVar(value=versions[0][0])
         self.min_value = versions[0][1]
@@ -4771,7 +4952,7 @@ class Html5ConfigDialog(ctk.CTkToplevel):
         rowv.pack(fill="x", pady=4)
         ctk.CTkLabel(rowv, text=self.parent._tr("Min. version"), width=160, anchor="w").pack(side="left")
         ctk.CTkOptionMenu(rowv, values=[d for d,_ in versions], variable=self.min_display, command=on_min_change, width=220).pack(side="left")
-        #ctk.CTkLabel(props, text=self.parent._tr("Target version: Android 14 (API level 34)")).pack(anchor="w", padx=8, pady=(4, 8))
+        ctk.CTkLabel(props, text=self.parent._tr("Target version: Android 15 (API level 35)")).pack(anchor="w", padx=8, pady=(4, 8))
 
         # Properties (whitelist, toggles)
         ctk.CTkLabel(props, text=self.parent._tr("Properties"), font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=8, pady=(8, 6))
@@ -4930,7 +5111,7 @@ class Html5ConfigDialog(ctk.CTkToplevel):
             "website": self.f_website.get().strip() or "",
             "whitelist": self.f_whitelist.get().strip() or "http://*/* https://*/*",
             "minApi": self.parent._safe_min_api(self.min_value),
-            "targetApi": "34",
+            "targetApi": "35",
             "orientation": self.orientation.get(),
             "hideStatus": self.chk_hide_status.get(),
             "permVibrate": self.chk_vibrate.get(),
@@ -5213,7 +5394,7 @@ class Html5ConfigDialog(ctk.CTkToplevel):
 
     def _on_toggle_recommended(self):
         try:
-            # Recommended set toggles these plugins ON when enabled
+
             recommended = self.chk_recommended.get()
             for pid in (
                 'cordova-plugin-fullscreen',
@@ -5229,25 +5410,25 @@ class Html5ConfigDialog(ctk.CTkToplevel):
 def set_window_icon(window):
     """Helper function to set icon for customtkinter windows using BASE64"""
     try:
-        # Метод 1: Создание временного файла из BASE64 (основной метод для иконки окна)
+        
         try:
             import base64
             import io
             import tempfile
             
-            # Декодируем BASE64 и создаем временный файл
+            
             icon_data = base64.b64decode(base64_string.strip())
             
-            # Создаем временный файл
+           
             with tempfile.NamedTemporaryFile(delete=False, suffix='.ico') as temp_file:
                 temp_file.write(icon_data)
                 temp_icon_path = temp_file.name
-            
-            # Устанавливаем иконку окна из временного файла
+
+           
             window.iconbitmap(temp_icon_path)
             print("Successfully set window icon using temporary file from BASE64")
             
-            # Store the temp file path for cleanup
+
             window._temp_icon_path = temp_icon_path
             
             # Cleanup function
@@ -5273,16 +5454,16 @@ def set_window_icon(window):
                 import base64
                 import io
                 
-                # Декодируем BASE64 и создаем изображение
+
                 icon_data = base64.b64decode(base64_string.strip())
                 img = Image.open(io.BytesIO(icon_data))
                 
-                # Создаем PhotoImage для иконки окна
+
                 photo = ImageTk.PhotoImage(img)
                 window.iconphoto(True, photo)
                 print("Successfully set window icon using PIL with BASE64")
                 
-                # Store the photo reference to prevent garbage collection
+
                 window._icon_photo = photo
                 
                 return True
