@@ -6,9 +6,11 @@
 <br>
 <br>
       
-![GitHub release (latest by date)](https://badgen.net/github/release/EwenLoy/Saturn-Builder
-) ![GitHub downloads](https://img.shields.io/github/downloads/EwenLoy/Saturn-Builder/total) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
-   
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/EwenLoy/Saturn-Builder)
+![GitHub downloads](https://img.shields.io/github/downloads/EwenLoy/Saturn-Builder/total)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
+
+
 <div align="left">
    
 ## 📖 What is Saturn-Builder? / Что это?
