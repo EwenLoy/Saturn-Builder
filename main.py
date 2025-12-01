@@ -3388,7 +3388,25 @@ class MainApp(ctk.CTk):
             else:
                 ks = self.keystore_info
             
-            buildtools = os.path.join(self.DEP_DIR, "android-sdk", "build-tools", "33.0.2")
+            # Ищем актуальную версию build-tools
+            buildtools_dir = os.path.join(self.DEP_DIR, "android-sdk", "build-tools")
+            buildtools = None
+            if os.path.exists(buildtools_dir):
+                # Ищем последнюю версию build-tools
+                versions = [d for d in os.listdir(buildtools_dir) if os.path.isdir(os.path.join(buildtools_dir, d))]
+                versions.sort(reverse=True)  # Сортируем по убыванию (новые версии первыми)
+                if versions:
+                    buildtools = os.path.join(buildtools_dir, versions[0])
+                    self.logger.log(f"Using build-tools version: {versions[0]}", "INFO")
+                else:
+                    self.logger.log("No build-tools versions found", "ERROR")
+            else:
+                self.logger.log("build-tools directory not found", "ERROR")
+                
+            if not buildtools:
+                self.logger.log("Error: build-tools not available", "ERROR")
+                return None
+                
             zipalign = os.path.join(buildtools, "zipalign.exe" if platform.system() == "Windows" else "zipalign")
             apksigner = os.path.join(buildtools, "apksigner.bat" if platform.system() == "Windows" else "apksigner")
             src = apk
