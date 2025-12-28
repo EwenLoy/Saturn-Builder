@@ -135,6 +135,7 @@ def safe_makedirs(path):
         os.makedirs(path, exist_ok=True)
     except Exception as e:
         print(f"Failed to create directory {path}: {e}")
+
 def human_size(num):
     try:
         n = float(num)
@@ -1097,6 +1098,38 @@ class MainApp(ctk.CTk):
             self.logger.log("Error: {err}", "ERROR", err=str(e))
     def _safe_min_api(self, v):
         return str(v or "24")
+    
+    def _robust_rmtree(self, path):
+        """Robust directory deletion that handles Windows file system issues"""
+        import stat
+        import time
+        
+        def remove_readonly(func, path, excinfo):
+            """Clear readonly bit and retry"""
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        
+        def retry_rmtree(path, max_retries=3, delay=1):
+            """Retry rmtree with delays"""
+            for attempt in range(max_retries):
+                try:
+                    shutil.rmtree(path, onerror=remove_readonly)
+                    return True
+                except (OSError, PermissionError) as e:
+                    if attempt == max_retries - 1:
+                        # Last attempt: try to force delete with Windows commands
+                        try:
+                            import subprocess
+                            subprocess.run(['cmd', '/c', 'rmdir', '/s', '/q', path], 
+                                         check=True, capture_output=True, text=True)
+                            return True
+                        except:
+                            raise e
+                    time.sleep(delay)
+            return False
+        
+        return retry_rmtree(path)
+    
     def _apply_html5_config(self, cfg, icon_img):
         try:
             # target project folder already in self.project_path (contains index.html)
@@ -4234,7 +4267,7 @@ class MainApp(ctk.CTk):
                 return
                 
             if os.path.exists(self.PROJ_DIR):
-                shutil.rmtree(self.PROJ_DIR)
+                self._robust_rmtree(self.PROJ_DIR)
                 safe_makedirs(self.PROJ_DIR)
                 self.logger.log("Deleted all project folders: {path}", "SUCCESS", path=self.PROJ_DIR)
                 self.project_loaded = False
