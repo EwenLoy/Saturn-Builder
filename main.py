@@ -135,7 +135,6 @@ def safe_makedirs(path):
         os.makedirs(path, exist_ok=True)
     except Exception as e:
         print(f"Failed to create directory {path}: {e}")
-
 def human_size(num):
     try:
         n = float(num)
@@ -1098,38 +1097,6 @@ class MainApp(ctk.CTk):
             self.logger.log("Error: {err}", "ERROR", err=str(e))
     def _safe_min_api(self, v):
         return str(v or "24")
-    
-    def _robust_rmtree(self, path):
-        """Robust directory deletion that handles Windows file system issues"""
-        import stat
-        import time
-        
-        def remove_readonly(func, path, excinfo):
-            """Clear readonly bit and retry"""
-            os.chmod(path, stat.S_IWRITE)
-            func(path)
-        
-        def retry_rmtree(path, max_retries=3, delay=1):
-            """Retry rmtree with delays"""
-            for attempt in range(max_retries):
-                try:
-                    shutil.rmtree(path, onerror=remove_readonly)
-                    return True
-                except (OSError, PermissionError) as e:
-                    if attempt == max_retries - 1:
-                        # Last attempt: try to force delete with Windows commands
-                        try:
-                            import subprocess
-                            subprocess.run(['cmd', '/c', 'rmdir', '/s', '/q', path], 
-                                         check=True, capture_output=True, text=True)
-                            return True
-                        except:
-                            raise e
-                    time.sleep(delay)
-            return False
-        
-        return retry_rmtree(path)
-    
     def _apply_html5_config(self, cfg, icon_img):
         try:
             # target project folder already in self.project_path (contains index.html)
@@ -2739,11 +2706,6 @@ class MainApp(ctk.CTk):
         try:
             cmd_display = " ".join(cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
             self.logger.log("Executing: {cmd}", "DEBUG", cmd=cmd_display)
-            try:
-                self._last_cmd_display = cmd_display
-                self._last_cmd_output = ""
-            except Exception:
-                pass
             env = self._get_env()
 
             # IMPORTANT (Windows): avoid shell=True because it can break Unicode paths/args.
@@ -2769,24 +2731,13 @@ class MainApp(ctk.CTk):
                 startupinfo=get_hidden_startupinfo(),
             )
             try:
-                output_lines = []
                 while True:
                     line = proc.stdout.readline()
                     if not line and proc.poll() is not None:
                         break
                     if line:
                         self.logger.raw(line.rstrip("\n"))
-                        try:
-                            output_lines.append(line)
-                            if len(output_lines) > 4000:
-                                output_lines = output_lines[-2000:]
-                        except Exception:
-                            pass
                 rc = proc.wait(timeout=timeout)
-                try:
-                    self._last_cmd_output = "".join(output_lines)
-                except Exception:
-                    pass
                 if rc == 0:
                     self.logger.log("Command finished successfully (code {rc})", "SUCCESS", rc=rc)
                 else:
@@ -3249,148 +3200,12 @@ class MainApp(ctk.CTk):
             except Exception as e:
                 self.logger.log("Warning: Could not update gradle.properties: {error}", "WARNING", error=str(e))
 
-        # Give Windows a moment to release file handles after platform add
-        import time
-        time.sleep(2)
- 
-        node_exe = os.path.join(node_dir, "node.exe" if platform.system() == "Windows" else "bin/node")
- 
+        # Не применяем никаких патчей к проектным файлам
         self._set_progress(35, self._tr("Applying patches..."))
-
-        def _looks_like_ebusy(output_text):
-            try:
-                t = (output_text or "").lower()
-            except Exception:
-                return False
-            return (
-                "ebusy" in t or
-                "resource busy" in t or
-                "err_invalid_arg_type" in t or
-                "the \"code\" argument must be of type number" in t
-            )
-
-        def _run_with_retries(base_cmd, label, max_attempts=4):
-            last_rc = None
-            for attempt in range(1, max_attempts + 1):
-                self.logger.log("Running Cordova {label} (attempt {a}/{m})", "INFO", label=label, a=attempt, m=max_attempts)
-                self.logger.log("Command: {cmd}", "DEBUG", cmd=" ".join(base_cmd))
-                rc = self._run_and_stream(base_cmd, cwd=cwd)
-                last_rc = rc
-                out = getattr(self, "_last_cmd_output", "")
-                if rc == 0:
-                    return 0
-                if not _looks_like_ebusy(out):
-                    break
-                self.logger.log("Cordova {label} failed due to possible EBUSY/lock, auto-retrying...", "WARNING", label=label)
-                try:
-                    kill_processes_by_name("node")
-                    kill_processes_by_name("java")
-                    kill_processes_by_name("gradle")
-                except Exception:
-                    pass
-                time.sleep(2 + attempt)
-            return last_rc if last_rc is not None else -1
-
-        # Construct exports may include 'Images' folder, while runtime/data.json may request 'images/'.
-        # Android assets are case-sensitive, so ensure both variants exist.
-        try:
-            www_dir = os.path.join(cwd, "www")
-            if os.path.isdir(www_dir):
-                def _find_child_case(parent_dir: str, child_name: str):
-                    try:
-                        child_name_l = (child_name or "").lower()
-                        for entry in os.listdir(parent_dir):
-                            if entry.lower() == child_name_l:
-                                return entry
-                    except Exception:
-                        return None
-                    return None
-
-                images_entry = _find_child_case(www_dir, "images")
-                if images_entry:
-                    if images_entry == "Images":
-                        detected_layout = "466++ edition (Images/)"
-                    elif images_entry == "images":
-                        detected_layout = "449 edition (images/)"
-                    else:
-                        detected_layout = f"custom ({images_entry}/)"
-                else:
-                    detected_layout = "unknown (no images/Images folder)"
-                self.logger.log("Detected Construct export layout: {layout}", "INFO", layout=detected_layout)
-
-                data_json_path = os.path.join(www_dir, "data.json")
-                if os.path.isfile(data_json_path) and images_entry:
-                    try:
-                        with open(data_json_path, "rb") as f:
-                            raw = f.read()
-                        desired_prefix = ("\"" + images_entry + "/").encode("utf-8")
-                        if b'"images/' in raw or b'"Images/' in raw:
-                            raw2 = raw.replace(b'"images/', desired_prefix).replace(b'"Images/', desired_prefix)
-                            if raw2 != raw:
-                                with open(data_json_path, "wb") as f:
-                                    f.write(raw2)
-                                self.logger.log("Normalized data.json asset paths to match {folder}/", "INFO", folder=images_entry)
-                    except Exception as e:
-                        self.logger.log("Warning: Failed to normalize data.json asset paths: {error}", "WARNING", error=str(e))
-
-                # Detect Yandex SDK loader usage (/sdk.js). In Cordova/Android this is not present by default,
-                # and can cause endless loading if a project/plugin waits only for onload.
-                try:
-                    main_js_path = os.path.join(www_dir, "scripts", "main.js")
-                    if os.path.isfile(main_js_path):
-                        with open(main_js_path, "rb") as f:
-                            mraw = f.read()
-                        if b"script.src = '/sdk.js';" in mraw:
-                            local_sdk_js = os.path.join(www_dir, "sdk.js")
-                            if not os.path.isfile(local_sdk_js):
-                                self.logger.log(
-                                    "Warning: Project loads '/sdk.js' (Yandex SDK), but www/sdk.js is missing. "
-                                    "On Android/Cordova this may cause endless loading or startup failure.",
-                                    "WARNING",
-                                )
-                except Exception as e:
-                    self.logger.log("Warning: Failed to check scripts/main.js for /sdk.js: {error}", "WARNING", error=str(e))
-        except Exception as e:
-            self.logger.log("Warning: Failed to normalize Images/images folder casing: {error}", "WARNING", error=str(e))
-
-        prepare_cmd = [node_exe, cordova_cmd, "prepare", "android", "--no-telemetry"]
-        rc_prepare = _run_with_retries(prepare_cmd, "prepare")
-        if rc_prepare != 0:
-            raise Exception(f"Cordova prepare failed with code {rc_prepare}")
-
-        # Safety net: some builds end up missing plugin asset injection in the final APK
-        # (cordova_plugins.js and assets/www/plugins). That breaks Cordova initialisation
-        # and can cascade into Construct failing to fetch local assets (ERR_CONNECTION_REFUSED).
-        try:
-            android_assets_www = os.path.join(cwd, "platforms", "android", "app", "src", "main", "assets", "www")
-            android_platform_www = os.path.join(cwd, "platforms", "android", "platform_www")
-            dst_plugins_js = os.path.join(android_assets_www, "cordova_plugins.js")
-            src_plugins_js = os.path.join(android_platform_www, "cordova_plugins.js")
-            dst_plugins_dir = os.path.join(android_assets_www, "plugins")
-            src_plugins_dir = os.path.join(android_platform_www, "plugins")
-
-            missing_plugins_js = not os.path.exists(dst_plugins_js)
-            missing_plugins_dir = not os.path.exists(dst_plugins_dir)
-
-            if missing_plugins_js or missing_plugins_dir:
-                self.logger.log(
-                    "Cordova plugin assets appear missing after prepare; attempting to restore from platform_www...",
-                    "WARNING",
-                )
-                safe_makedirs(android_assets_www)
-                if missing_plugins_js and os.path.exists(src_plugins_js):
-                    shutil.copy2(src_plugins_js, dst_plugins_js)
-                    self.logger.log("Restored cordova_plugins.js into assets/www", "INFO")
-                if missing_plugins_dir and os.path.isdir(src_plugins_dir):
-                    shutil.copytree(src_plugins_dir, dst_plugins_dir, dirs_exist_ok=True)
-                    self.logger.log("Restored plugins/ directory into assets/www", "INFO")
-        except Exception as e:
-            self.logger.log(
-                "Warning: Failed to restore Cordova plugin assets: {error}",
-                "WARNING",
-                error=str(e),
-            )
-
+        
+        # Не выполняем prepare/патч и не меняем gradle-конфигурации — как в чистой CLI
+        # Сборка через Cordova CLI с использованием build.json
+        node_exe = os.path.join(node_dir, "node.exe" if platform.system() == "Windows" else "bin/node")
         cmd = [node_exe, cordova_cmd, "build", "android", "--no-telemetry"]
         
         # Определяем, нужно ли использовать buildConfig
@@ -3433,7 +3248,7 @@ class MainApp(ctk.CTk):
             cmd.append("--release")
         self.logger.log("Running Cordova build: {cmd}", "INFO", cmd=" ".join(cmd))
         self._set_progress(40, self._tr("Build: {mode_internal}...", mode_internal=mode_internal))
-        rc = _run_with_retries(cmd, "build")
+        rc = self._run_and_stream(cmd, cwd=cwd)
         self._set_progress(70, self._tr("Build completed"))
         if rc != 0:
             self.logger.log("Cordova build failed, trying Android Studio build as fallback...", "WARNING")
@@ -4419,7 +4234,7 @@ class MainApp(ctk.CTk):
                 return
                 
             if os.path.exists(self.PROJ_DIR):
-                self._robust_rmtree(self.PROJ_DIR)
+                shutil.rmtree(self.PROJ_DIR)
                 safe_makedirs(self.PROJ_DIR)
                 self.logger.log("Deleted all project folders: {path}", "SUCCESS", path=self.PROJ_DIR)
                 self.project_loaded = False
@@ -4597,13 +4412,6 @@ class MainApp(ctk.CTk):
 
             set_pref('AndroidWindowSplashScreenAnimatedIcon', 'www/icons/icon-128.png')
             set_pref('AndroidWindowSplashScreenBackground', '#ffffff')
-
-            # Ensure Cordova Android asset loader origin is stable.
-            # Without this, WebView can attempt real network requests and cause ERR_CONNECTION_REFUSED
-            # for local game assets (images/data.json).
-            set_pref('Scheme', 'https')
-            set_pref('Hostname', 'localhost')
-            set_pref('AndroidInsecureFileModeEnabled', 'false')
 
             # Обеспечим корректный блок <platform name="android"> и uses-permission
             android_plat = None
