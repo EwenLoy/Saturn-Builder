@@ -455,7 +455,7 @@ TRANSLATIONS = {
     "Android Versions": "Версии Android",
     "Min. version": "Мин. версия",
     "Target version: Android 14 (API level 34)": "Целевая версия: Android 14 (API уровень 34)",
-    "Target version: Android 15 (API level 35)": "Целевая версия: Android 15 (API уровень 35)",
+    "Target version: Android 16 (API level 36)": "Целевая версия: Android 16 (API уровень 36)",
     "Properties": "Свойства",
     "URL whitelist": "Белый список URL",
     "Hide status bar": "Скрыть статус-бар",
@@ -701,7 +701,7 @@ TRANSLATIONS_PT = {
     "Android Versions": "Versões do Android",
     "Min. version": "Versão mínima",
     "Target version: Android 14 (API level 34)": "Versão alvo: Android 14 (API nível 34)",
-    "Target version: Android 15 (API level 35)": "Versão alvo: Android 15 (API nível 35)",
+    "Target version: Android 16 (API level 36)": "Versão alvo: Android 16 (API nível 36)",
     "Properties": "Propriedades",
     "URL whitelist": "Lista branca de URLs",
     "Hide status bar": "Ocultar barra de status",
@@ -1172,7 +1172,7 @@ class MainApp(ctk.CTk):
                 plugins_xml = ""
             config_xml = f"""
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="{cfg['id']}" version="{cfg['version']}" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+<widget id="{cfg['id']}" version="{cfg['version']}" android-versionCode="{max(1, int(cfg['versionCode']) if str(cfg['versionCode']).isdigit() else 1)}" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
   <name>{cfg['name']}</name>
   <description>{cfg['description']}</description>
   <author email="{cfg['email']}" href="{cfg['website']}">{cfg['author']}</author>
@@ -1182,8 +1182,8 @@ class MainApp(ctk.CTk):
   <platform name="android">
     <preference name="android-minSdkVersion" value="{cfg['minApi']}" />
     <preference name="android-targetSdkVersion" value="{cfg['targetApi']}" />
-    <preference name="android-compileSdkVersion" value="35" />
-    <preference name="android-buildToolsVersion" value="35.0.0" />
+    <preference name="android-compileSdkVersion" value="36" />
+    <preference name="android-buildToolsVersion" value="36.0.0" />
     <icon density="mdpi" src="www/res/mipmap-mdpi/ic_launcher.png" />
     <icon density="hdpi" src="www/res/mipmap-hdpi/ic_launcher.png" />
     <icon density="xhdpi" src="www/res/mipmap-xhdpi/ic_launcher.png" />
@@ -2275,31 +2275,9 @@ class MainApp(ctk.CTk):
             env = self._get_env()
             cmd = [node_exe, npm_cli_path, "install", "cordova@12.0.0", "--no-save"]
             
-            # Для установки Cordova используем старый метод без скрытия окна
+            # Используем _run_and_stream вместо ручного Popen (shell=True на Windows ломает stdin pipe)
             self.logger.log("Executing: {cmd}", "DEBUG", cmd=" ".join(cmd))
-            shell = platform.system() == "Windows"
-            proc = subprocess.Popen(cmd, cwd=node_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, 
-                                 text=True, env=env, bufsize=1, shell=shell)
-            try:
-                while True:
-                    line = proc.stdout.readline()
-                    if not line and proc.poll() is not None:
-                        break
-                    if line:
-                        self.logger.raw(line.rstrip("\n"))
-                rc = proc.wait(timeout=600)  # Увеличиваем timeout до 10 минут
-            except subprocess.TimeoutExpired:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=3)
-                except Exception:
-                    pass
-                self.logger.log("Error: {err}", "ERROR", err="Command timeout")
-                return
-            if rc == 0:
-                self.logger.log("Command finished successfully (code {rc})", "SUCCESS", rc=rc)
-            else:
-                self.logger.log("Command finished with code {rc}", "ERROR", rc=rc)
+            rc = self._run_and_stream(cmd, cwd=node_dir, timeout=600)
             
             self._set_progress(start_progress + weight * 0.5, self._tr("Installing Cordova CLI locally"))
             if rc == 0:
@@ -2439,7 +2417,9 @@ class MainApp(ctk.CTk):
     
     def _flatten_dir(self, dir_path):
         try:
-            inner_dirs = [d for d in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, d))]
+            contents = os.listdir(dir_path)
+            inner_dirs = [d for d in contents if os.path.isdir(os.path.join(dir_path, d))]
+            # Flatten only if there's exactly one directory
             if len(inner_dirs) == 1:
                 inner = os.path.join(dir_path, inner_dirs[0])
                 items = os.listdir(inner)
@@ -2599,8 +2579,9 @@ class MainApp(ctk.CTk):
                 raise Exception("sdkmanager not found")
             components = [
                 "platform-tools",
+                "platforms;android-36",
+                "build-tools;36.0.0",
                 "platforms;android-35",
-                "build-tools;35.0.0",
                 "platforms;android-34",
                 "platforms;android-33"
             ]
@@ -3147,13 +3128,67 @@ class MainApp(ctk.CTk):
             if not os.path.exists(node_exe):
                 raise Exception("node.exe not found; cannot install Cordova")
             
+            # Diagnostic: verify node.exe is runnable
+            try:
+                test_result = subprocess.run(
+                    [node_exe, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    startupinfo=get_hidden_startupinfo()
+                )
+                if test_result.returncode != 0:
+                    raise Exception(f"node.exe test failed with code {test_result.returncode}")
+                self.logger.log("node.exe version: {ver}", "DEBUG", ver=test_result.stdout.strip())
+            except Exception as e:
+                raise Exception(f"node.exe is not executable: {e}")
+            
+            # Diagnostic: verify cordova script exists
+            if not os.path.exists(cordova_cmd):
+                raise Exception(f"cordova script not found at: {cordova_cmd}")
+            
+            # Check for broken transitive dependencies (e.g. tar/minipass missing)
+            # This happens when npm install was interrupted or partially completed
+            cordova_dir = os.path.join(node_dir, "node_modules", "cordova")
+            tar_minipass = os.path.join(node_dir, "node_modules", "tar", "node_modules", "minipass", "index.js")
+            tar_dir = os.path.join(node_dir, "node_modules", "tar")
+            if os.path.exists(tar_dir) and not os.path.exists(tar_minipass):
+                self.logger.log("Detected broken npm dependencies (tar/minipass missing) — running npm install to repair...", "WARNING")
+                npm_cli_path2 = ensure_npm_cli(node_dir, self.logger)
+                repair_rc = self._run_and_stream(
+                    [node_exe, npm_cli_path2, "install", "--no-save"],
+                    cwd=cordova_dir,
+                    timeout=300
+                )
+                if repair_rc == 0:
+                    self.logger.log("npm dependencies repaired successfully", "INFO")
+                else:
+                    self.logger.log("npm repair returned code {rc}, continuing anyway...", "WARNING", rc=repair_rc)
+            
             env = self._get_env()
             cmd = [node_exe, cordova_cmd, "platform", "add", "android@14.0.0", "--no-telemetry"]
+            
+            # Log the full command for debugging
+            self.logger.log("Full cordova command: {cmd}", "DEBUG", cmd=" ".join([f'"{x}"' if " " in x else x for x in cmd]))
+            self.logger.log("Working directory: {cwd}", "DEBUG", cwd=cwd)
             
             # Run through the unified runner to avoid Windows codepage/Unicode issues.
             rc = self._run_and_stream(cmd, cwd=cwd, timeout=600)
             if rc != 0:
-                raise Exception(f"Cordova platform add failed with code {rc}")
+                # Cordova exits with code 1 when the platform is already added —
+                # check if the platform directory is actually present before failing.
+                if os.path.exists(os.path.join(android_platform_dir, "cordova", "Api.js")):
+                    self.logger.log("Platform add returned non-zero but platform is present — continuing", "INFO")
+                else:
+                    # Large exit codes (> 255) typically indicate system-level failures on Windows
+                    if rc > 255:
+                        raise Exception(
+                            f"Cordova platform add failed with system error code {rc}. "
+                            f"This usually indicates: missing DLL, antivirus blocking node.exe, "
+                            f"or corrupted Node.js installation. Check logs above for details."
+                        )
+                    else:
+                        raise Exception(f"Cordova platform add failed with code {rc}")
             
             self._set_progress(30, self._tr("Android platform added"))
         else:
@@ -3176,7 +3211,17 @@ class MainApp(ctk.CTk):
                     add_cmd = [node_exe, cordova_cmd, "platform", "add", "android@14.0.0", "--no-telemetry"]
                     rc_add = self._run_and_stream(add_cmd, cwd=cwd)
                     if rc_add != 0:
-                        raise Exception(f"Cordova platform add failed with code {rc_add}")
+                        if os.path.exists(os.path.join(android_platform_dir, "cordova", "Api.js")):
+                            self.logger.log("Platform add returned non-zero but platform is present — continuing", "INFO")
+                        else:
+                            if rc_add > 255:
+                                raise Exception(
+                                    f"Cordova platform add failed with system error code {rc_add}. "
+                                    f"This usually indicates: missing DLL, antivirus blocking node.exe, "
+                                    f"or corrupted Node.js installation."
+                                )
+                            else:
+                                raise Exception(f"Cordova platform add failed with code {rc_add}")
                     self.logger.log("Android platform re-added successfully", "SUCCESS")
                 except Exception as e:
                     self.logger.log("Warning: Could not fix platform: {error}", "WARNING", error=str(e))
@@ -4339,9 +4384,9 @@ class MainApp(ctk.CTk):
                         "\t<engine name=\"android\" spec=\"14.0.0\" />\n"
                         "\t<platform name=\"android\">\n"
                         "\t\t<preference name=\"android-minSdkVersion\" value=\"24\" />\n"
-                        "\t\t<preference name=\"android-targetSdkVersion\" value=\"35\" />\n"
-                        "\t\t<preference name=\"android-compileSdkVersion\" value=\"35\" />\n"
-                        "\t\t<preference name=\"android-buildToolsVersion\" value=\"35.0.0\" />\n"
+                        "\t\t<preference name=\"android-targetSdkVersion\" value=\"36\" />\n"
+                        "\t\t<preference name=\"android-compileSdkVersion\" value=\"36\" />\n"
+                        "\t\t<preference name=\"android-buildToolsVersion\" value=\"36.0.0\" />\n"
                         "\t\t<config-file target=\"AndroidManifest.xml\" parent=\"/manifest\">\n"
                         "\t\t\t<uses-permission android:name=\"android.permission.INTERNET\" />\n"
                         "\t\t</config-file>\n"
@@ -5361,7 +5406,7 @@ class Html5ConfigDialog(ctk.CTkToplevel):
         rowv.pack(fill="x", pady=4)
         ctk.CTkLabel(rowv, text=self.parent._tr("Min. version"), width=160, anchor="w").pack(side="left")
         ctk.CTkOptionMenu(rowv, values=[d for d,_ in versions], variable=self.min_display, command=on_min_change, width=220).pack(side="left")
-        ctk.CTkLabel(props, text=self.parent._tr("Target version: Android 15 (API level 35)")).pack(anchor="w", padx=8, pady=(4, 8))
+        ctk.CTkLabel(props, text=self.parent._tr("Target version: Android 16 (API level 36)")).pack(anchor="w", padx=8, pady=(4, 8))
 
         # Properties (whitelist, toggles)
         ctk.CTkLabel(props, text=self.parent._tr("Properties"), font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w", padx=8, pady=(8, 6))
@@ -5520,7 +5565,7 @@ class Html5ConfigDialog(ctk.CTkToplevel):
             "website": self.f_website.get().strip() or "",
             "whitelist": self.f_whitelist.get().strip() or "http://*/* https://*/*",
             "minApi": self.parent._safe_min_api(self.min_value),
-            "targetApi": "35",
+            "targetApi": "36",
             "orientation": self.orientation.get(),
             "hideStatus": self.chk_hide_status.get(),
             "permVibrate": self.chk_vibrate.get(),
